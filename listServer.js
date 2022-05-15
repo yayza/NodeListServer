@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars */
 /* eslint no-console: ["error", { allow: ["log", "warn", "error"] }] */
 // NodeListServer: NodeJS-based List Server Application
 // Developed by Matt Coburn and project contributors.
@@ -23,8 +24,23 @@
 const REVISION_VER = 3;
 
 // ---------------
-// Require some essential libraries and modules.
+// Import our other functions.
 // ---------------
+// const { loggerInstance } = require("./utils/logger.js");
+// const {
+//   denyRequest,
+//   generateUuid,
+//   translateConfigOptionToBool,
+//   sleep,
+// } = require("./utils/helpers.js");
+// const {
+//   apiCheckKey,
+//   apiIsKeyFromRequestIsBad,
+//   apiDoesServerExistByUuid,
+//   apiDoesServerExistByName,
+//   apiDoesThisServerExistByAddressPort,
+//   checkIfValidIP,
+// } = require("./utils/validators.js");
 
 const {
   apiCheckKey,
@@ -36,12 +52,35 @@ const {
   denyRequest,
   generateUuid,
   translateConfigOptionToBool,
+  sleep,
   loggerInstance,
   configuration,
-  expressApp,
-  sleep,
-  removeOldServers,
-} = require("./lib/_exports.js");
+} = require("./utils/_exports.js");
+
+// Constant references to various modules.
+const expressServer = require("express");
+const expressApp = expressServer();
+const bodyParser = require("body-parser");
+
+// Security checks
+
+// - Rate Limiter
+// Note: We check if this is undefined as well as set to true, because we may be
+// using an old configuration ini file that doesn't have the new setting in it.
+// Enabled by default, unless explicitly disabled.
+if (
+  typeof configuration.Security.useRateLimiter === "undefined" ||
+  translateConfigOptionToBool(configuration.Security.useRateLimiter)
+) {
+  const expressRateLimiter = require("express-rate-limit");
+  const limiter = expressRateLimiter({
+    windowMs: configuration.Security.rateLimiterWindowMs,
+    max: configuration.Security.rateLimiterMaxApiRequestsPerWindow,
+  });
+
+  console.log("Security: Enabling the rate limiter module.");
+  expressApp.use(limiter);
+}
 
 // - Access Control List (ACL)
 // Allowed server addresses cache.
@@ -52,95 +91,20 @@ if (translateConfigOptionToBool(configuration.Auth.useAccessControl)) {
   allowedServerAddresses = configuration.Auth.allowedIpAddresses.split(",");
 }
 
+// Make sure we use some other things too.
+expressApp.use(expressServer.json());
+expressApp.use(expressServer.urlencoded({ extended: true }));
+expressApp.use((err, req, res, next) => {
+  // Handle invalid JSON requests.
+  if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
+    loggerInstance.info(`${req.ip} sent a bad request: '${err}'`);
+    return res.status(400).send({ message: "Bad Request Body" });
+  }
+  next(); // Continue
+});
+
 // Server memory array cache.
 var knownServers = [];
-
-// Functions used by NodeListServer
-// - Utilities
-// Generates a UUID for a newly added server.
-function generateUuid() {
-  var generatedUuid = uuid.v4();
-  var doesExist = knownServers.filter((server) => server.uuid === generatedUuid); // Used for collision check
-
-  if (doesExist.length > 0) {
-    generateUuid();
-  }
-
-  return generatedUuid;
-}
-
-// Taken from https://melvingeorge.me/blog/check-if-string-is-valid-ip-address-javascript
-function checkIfValidIP(str) {
-  // Regular expression to check if string is a IP address
-  const regexExp =
-    /^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$/gi;
-
-  return regexExp.test(str);
-}
-
-// - Authentication
-// apiCheckKey: Checks to see if the client specified key matches.
-function apiCheckKey(clientKey) {
-  if (clientKey === configuration.Auth.communicationKey) return true;
-  else return false;
-}
-
-// apiIsKeyFromRequestIsBad: The name is a mouthful, but checks if the key is bad.
-function apiIsKeyFromRequestIsBad(req) {
-  if (typeof req.body.serverKey === "undefined" || !apiCheckKey(req.body.serverKey)) {
-    loggerInstance.warn(`${req.ip} used a wrong key: ${req.body.serverKey}`);
-    return true;
-  } else {
-    return false;
-  }
-}
-
-// - Sanity Checking
-// apiDoesServerExistByUuid: Checks if the server exists in our cache, by UUID.
-function apiDoesServerExistByUuid(uuid) {
-  var doesExist = knownServers.filter((server) => server.uuid === uuid.trim());
-
-  if (doesExist.length > 0) {
-    return true;
-  }
-
-  // Fall though.
-  return false;
-}
-
-// apiDoesServerExist: Checks if the server exists in our cache, by UUID.
-function apiDoesServerExistByName(name) {
-  var doesExist = knownServers.filter((server) => server.name === name.trim());
-
-  if (doesExist.length > 0) {
-    return true;
-  }
-
-  // Fall though.
-  return false;
-}
-
-// apiDoesThisServerExistByAddressPort: Checks if the server exists in our cache, by IP address and port.
-function apiDoesThisServerExistByAddressPort(ipAddress, port) {
-  var doesExist = knownServers.filter(
-    (servers) => servers.ip === ipAddress.trim() && servers.port === port
-  );
-  if (doesExist.length > 0) {
-    return true;
-  }
-
-  // Fall though.
-  return false;
-}
-
-// -- Request Handling
-// denyRequest: Generic function that denies requests.
-function denyRequest(req, res) {
-  loggerInstance.warn(
-    `Request from ${req.ip} denied. Tried ${req.method} method on path: ${req.path}`
-  );
-  return res.sendStatus(400);
-}
 
 // apiGetServerList: This handler returns a JSON array of servers to the clients.
 function apiGetServerList(req, res) {
@@ -259,7 +223,7 @@ function apiAddToServerList(req, res) {
   // If this is a potential existing server...
   if (potentialExistingServer) {
     // Does it really exist, tho?
-    if (apiDoesServerExistByUuid(potentialExistingServerId)) {
+    if (apiDoesServerExistByUuid(potentialExistingServerId, knownServers)) {
       // Hand it over to the update routine.
       apiUpdateServerInList(req, res, potentialExistingServerId);
     } else {
@@ -281,7 +245,7 @@ function apiAddToServerList(req, res) {
     // it doesn't clash.
     if (
       !translateConfigOptionToBool(configuration.Security.allowDuplicateServerNames) &&
-      apiDoesServerExistByName(req.body.serverName)
+      apiDoesServerExistByName(req.body.serverName, knownServers)
     ) {
       loggerInstance.warn(
         `Request from ${req.ip} denied: Server name clashes with an existing server name.`
@@ -308,9 +272,9 @@ function apiAddToServerList(req, res) {
 
     // Check for a sneaky IP address and port collison attempt.
     // if(typeof req.body.serverIp != "undefined" && checkIfValidIP(req.body.serverIp)) .... todo
-    queriedAddress = req.ip;
+    const queriedAddress = req.ip;
 
-    if (apiDoesThisServerExistByAddressPort(queriedAddress, req.body.serverPort)) {
+    if (apiDoesThisServerExistByAddressPort(queriedAddress, req.body.serverPort, knownServers)) {
       loggerInstance.warn(
         `Request from ${req.ip} denied: Server collision! We're attempting to add a server that's already known.`
       );
@@ -319,7 +283,7 @@ function apiAddToServerList(req, res) {
 
     // Time to wrap things up.
     var newServer = {
-      uuid: generateUuid(),
+      uuid: generateUuid(knownServers),
       ip: queriedAddress,
       name: req.body.serverName.trim(),
       port: parseInt(req.body.serverPort, 10),
@@ -392,12 +356,11 @@ function apiRemoveFromServerList(req, res) {
 }
 
 // Automatically remove servers when they haven't updated after the time specified in the config.ini
-// function removeOldServers() {
-//   loggerInstance.info("Starting server pruning.");
-//   knownServers = knownServers.filter((freshServer) => freshServer.lastUpdated >= Date.now());
-//   setTimeout(removeOldServers, configuration.Pruning.inactiveServerRemovalMinutes * 60 * 1000);
-// }
-// removeOldServers();
+(async function removeOldServers() {
+  knownServers = knownServers.filter((freshServer) => freshServer.lastUpdated >= Date.now());
+  await sleep(configuration.Pruning.inactiveServerRemovalMinutes * 60 * 1000);
+  removeOldServers();
+})(); // IIFE
 
 // -- Start the application -- //
 // Attach the functions to each path we use with NodeLS.
