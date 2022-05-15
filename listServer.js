@@ -25,109 +25,23 @@ const REVISION_VER = 3;
 // ---------------
 // Require some essential libraries and modules.
 // ---------------
-const log4js = require("log4js");
-const iniParser = require("multi-ini");
-const fs = require("fs");
-const uuid = require("uuid");
 
-// ---------------
-// Used to store our configuration file data.
-// ---------------
-var configuration;
-var logFile = "NodeListServer.log";
-
-// ---------------
-// Logging configuration. Feel free to modify.
-// ---------------
-
-// Bugfix: If Google App Engine is running NodeLS, we cannot write to the disk, since it's readonly.
-// So we run a check to ensure we can write, if not, we just log to console.
-
-// Check if we can write?
-fs.access(__dirname, fs.constants.W_OK, function (err) {
-  if (err) {
-    console.warn("Can't write to disk; logging to file will be disabled!");
-
-    // Configure Log4js
-    log4js.configure({
-      appenders: {
-        console: { type: "stdout" },
-        default: { type: "stdout" },
-      },
-      categories: {
-        default: { appenders: ["console"], level: "debug" },
-      },
-    });
-  } else {
-    log4js.configure({
-      appenders: {
-        console: { type: "stdout" },
-        default: {
-          type: "file",
-          filename: logFile,
-          maxLogSize: 1048576,
-          backups: 3,
-          compress: true,
-        },
-      },
-      categories: {
-        default: { appenders: ["default", "console"], level: "debug" },
-      },
-    });
-  }
-});
-
-// Now we get the logger instance.
-var loggerInstance = log4js.getLogger("NodeLS");
-
-// Do we have a configuration file?
-if (fs.existsSync("config.ini")) {
-  configuration = iniParser.read("./config.ini");
-  // Use only for checking if configuration is valid, and not in production.
-  // console.log(configuration);
-} else {
-  loggerInstance.error("NodeListServer failed to start due to a missing 'config.ini' file.");
-  loggerInstance.error("Please ensure one exists in the directory next to the script file.");
-  loggerInstance.error(
-    "If you see this message repeatedly, you might have found a bug worth reporting at https://github.com/SoftwareGuy/NodeListServer."
-  );
-  loggerInstance.error("Exiting...");
-  process.exit(1);
-}
-
-// This function was coded on a whim and probably is jank. Improvements welcome,
-// especially how to cast a string into a boolean. ie. "true" -> true.
-// In C# I would do bool.TryParse or some other cast.
-function translateConfigOptionToBool(value) {
-  if (typeof value === "undefined" || value === "false") return false;
-  // Thanks to https://medium.com/geekculture/20-javascript-snippets-to-code-like-a-pro-86f5fda5598e
-  else return !!value;
-}
-
-// Constant references to various modules.
-const expressServer = require("express");
-const expressApp = expressServer();
-const bodyParser = require("body-parser");
-
-// Security checks
-
-// - Rate Limiter
-// Note: We check if this is undefined as well as set to true, because we may be
-// using an old configuration ini file that doesn't have the new setting in it.
-// Enabled by default, unless explicitly disabled.
-if (
-  typeof configuration.Security.useRateLimiter === "undefined" ||
-  translateConfigOptionToBool(configuration.Security.useRateLimiter)
-) {
-  const expressRateLimiter = require("express-rate-limit");
-  const limiter = expressRateLimiter({
-    windowMs: configuration.Security.rateLimiterWindowMs,
-    max: configuration.Security.rateLimiterMaxApiRequestsPerWindow,
-  });
-
-  console.log("Security: Enabling the rate limiter module.");
-  expressApp.use(limiter);
-}
+const {
+  apiCheckKey,
+  apiIsKeyFromRequestIsBad,
+  apiDoesServerExistByUuid,
+  apiDoesServerExistByName,
+  apiDoesThisServerExistByAddressPort,
+  checkIfValidIP,
+  denyRequest,
+  generateUuid,
+  translateConfigOptionToBool,
+  loggerInstance,
+  configuration,
+  expressApp,
+  sleep,
+  removeOldServers,
+} = require("./lib/_exports.js");
 
 // - Access Control List (ACL)
 // Allowed server addresses cache.
@@ -137,10 +51,6 @@ if (translateConfigOptionToBool(configuration.Auth.useAccessControl)) {
   console.log("Security: Beware, Access Control Lists are enabled.");
   allowedServerAddresses = configuration.Auth.allowedIpAddresses.split(",");
 }
-
-// Make sure we use some other things too.
-expressApp.use(bodyParser.json());
-expressApp.use(bodyParser.urlencoded({ extended: true }));
 
 // Server memory array cache.
 var knownServers = [];
@@ -482,12 +392,12 @@ function apiRemoveFromServerList(req, res) {
 }
 
 // Automatically remove servers when they haven't updated after the time specified in the config.ini
-async function removeOldServers() {
-  knownServers = knownServers.filter((freshServer) => freshServer.lastUpdated >= Date.now());
-  setTimeout(removeOldServers, configuration.Pruning.inactiveServerRemovalMinutes * 60 * 1000);
-}
-
-removeOldServers();
+// function removeOldServers() {
+//   loggerInstance.info("Starting server pruning.");
+//   knownServers = knownServers.filter((freshServer) => freshServer.lastUpdated >= Date.now());
+//   setTimeout(removeOldServers, configuration.Pruning.inactiveServerRemovalMinutes * 60 * 1000);
+// }
+// removeOldServers();
 
 // -- Start the application -- //
 // Attach the functions to each path we use with NodeLS.
