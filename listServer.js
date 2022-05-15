@@ -26,21 +26,6 @@ const REVISION_VER = 3;
 // ---------------
 // Import our other functions.
 // ---------------
-// const { loggerInstance } = require("./utils/logger.js");
-// const {
-//   denyRequest,
-//   generateUuid,
-//   translateConfigOptionToBool,
-//   sleep,
-// } = require("./utils/helpers.js");
-// const {
-//   apiCheckKey,
-//   apiIsKeyFromRequestIsBad,
-//   apiDoesServerExistByUuid,
-//   apiDoesServerExistByName,
-//   apiDoesThisServerExistByAddressPort,
-//   checkIfValidIP,
-// } = require("./utils/validators.js");
 
 const {
   apiCheckKey,
@@ -55,53 +40,9 @@ const {
   sleep,
   loggerInstance,
   configuration,
-} = require("./utils/_exports.js");
-
-// Constant references to various modules.
-const expressServer = require("express");
-const expressApp = expressServer();
-const bodyParser = require("body-parser");
-
-// Security checks
-
-// - Rate Limiter
-// Note: We check if this is undefined as well as set to true, because we may be
-// using an old configuration ini file that doesn't have the new setting in it.
-// Enabled by default, unless explicitly disabled.
-if (
-  typeof configuration.Security.useRateLimiter === "undefined" ||
-  translateConfigOptionToBool(configuration.Security.useRateLimiter)
-) {
-  const expressRateLimiter = require("express-rate-limit");
-  const limiter = expressRateLimiter({
-    windowMs: configuration.Security.rateLimiterWindowMs,
-    max: configuration.Security.rateLimiterMaxApiRequestsPerWindow,
-  });
-
-  console.log("Security: Enabling the rate limiter module.");
-  expressApp.use(limiter);
-}
-
-// - Access Control List (ACL)
-// Allowed server addresses cache.
-var allowedServerAddresses = [];
-
-if (translateConfigOptionToBool(configuration.Auth.useAccessControl)) {
-  console.log("Security: Beware, Access Control Lists are enabled.");
-  allowedServerAddresses = configuration.Auth.allowedIpAddresses.split(",");
-}
-
-// Make sure we use some other things too.
-expressApp.use(expressServer.json());
-expressApp.use(expressServer.urlencoded({ extended: true }));
-expressApp.use((err, req, res, next) => {
-  // Handle invalid JSON requests.
-  if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
-    loggerInstance.info(`${req.ip} sent a bad request: '${err}'`);
-    return res.status(400).send({ message: "Bad Request Body" });
-  }
-  next(); // Continue
-});
+  expressApp,
+  allowedServerAddresses,
+} = require("./lib/_exports.js");
 
 // Server memory array cache.
 var knownServers = [];
@@ -360,7 +301,7 @@ function apiRemoveFromServerList(req, res) {
   knownServers = knownServers.filter((freshServer) => freshServer.lastUpdated >= Date.now());
   await sleep(configuration.Pruning.inactiveServerRemovalMinutes * 60 * 1000);
   removeOldServers();
-})(); // IIFE
+})(); // Immediate invoke
 
 // -- Start the application -- //
 // Attach the functions to each path we use with NodeLS.
