@@ -25,18 +25,16 @@ const REVISION_VER = 3;
 // ---------------
 // Require some essential libraries and modules.
 // ---------------
-
-const uuid = require("uuid");
-const { handleErrors, handleValidations } = require("./lib/requestHandlers");
-const { configuration, translateConfigOptionToBool } = require("./lib/config");
-const loggerInstance = require("./lib/logger");
-
-// Constant references to various modules.
 const expressServer = require("express");
 const expressApp = expressServer();
 
-// Security checks
+// - Import what we need from our other files
+const loggerInstance = require("./lib/logger"); // our logger instance
+const requestHandlers = require("./lib/requestHandlers"); // requestHandlers (they check all or any request we specify)
+const { generateUuid } = require("./lib/utils"); // some utils
+const { configuration, translateConfigOptionToBool } = require("./lib/config"); // our configuration
 
+// Security checks
 // - Rate Limiter
 // Note: We check if this is undefined as well as set to true, because we may be
 // using an old configuration ini file that doesn't have the new setting in it.
@@ -67,36 +65,14 @@ if (translateConfigOptionToBool(configuration.Auth.useAccessControl)) {
 // Make sure we use some other things too.
 expressApp.use(expressServer.json());
 expressApp.use(expressServer.urlencoded({ extended: true }));
-expressApp.use(handleErrors);
+expressApp.use(requestHandlers.handleErrors);
+expressApp.use(requestHandlers.globalValidations);
 expressApp.use((req, res, next) =>
-  handleValidations(req, res, next, knownServers, allowedServerAddresses)
+  requestHandlers.pathSpecificValidations(req, res, next, knownServers, allowedServerAddresses)
 );
 
 // Server memory array cache.
 var knownServers = [];
-
-// Functions used by NodeListServer
-// - Utilities
-// Generates a UUID for a newly added server.
-function generateUuid() {
-  var generatedUuid = uuid.v4();
-  var doesExist = knownServers.filter((server) => server.uuid === generatedUuid); // Used for collision check
-
-  if (doesExist.length > 0) {
-    generateUuid();
-  }
-
-  return generatedUuid;
-}
-
-// -- Request Handling
-// denyRequest: Generic function that denies requests.
-function denyRequest(req, res) {
-  loggerInstance.warn(
-    `Request from ${req.ip} denied. Tried ${req.method} method on path: ${req.path}`
-  );
-  return res.sendStatus(400);
-}
 
 // apiGetServerList: This handler returns a JSON array of servers to the clients.
 function apiGetServerList(req, res) {
@@ -227,7 +203,6 @@ removeOldServers();
 
 // -- Start the application -- //
 // Attach the functions to each path we use with NodeLS.
-expressApp.get("/", denyRequest);
 expressApp.post("/list", apiGetServerList);
 expressApp.post("/add", apiAddToServerList);
 expressApp.post("/remove", apiRemoveFromServerList);
