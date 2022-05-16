@@ -65,10 +65,12 @@ if (translateConfigOptionToBool(configuration.Auth.useAccessControl)) {
 // Make sure we use some other things too.
 expressApp.use(expressServer.json());
 expressApp.use(expressServer.urlencoded({ extended: true }));
+
+// These are our gatekeepers, requests must pass through these before allowed to access the API.
 expressApp.use(requestHandlers.handleErrors);
-expressApp.use(requestHandlers.globalValidations);
+expressApp.use(requestHandlers.handleAllRequests);
 expressApp.use((req, res, next) =>
-  requestHandlers.pathSpecificValidations(req, res, next, knownServers, allowedServerAddresses)
+  requestHandlers.handlePathSpecificRequests(req, res, next, knownServers, allowedServerAddresses)
 );
 
 // Server memory array cache.
