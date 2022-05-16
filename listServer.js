@@ -157,12 +157,12 @@ function apiAddToServerList(req, res) {
   // If we do have a server UUID: Then it's possible we're trying to update the server entry.
   // If we do not have a server UUID: Then it's possible we're trying to register the server entry.
   // If neither, on your bike mate, ya ain't welcome here.
-  if (knownServers.filter((server) => server.uuid === req.body.serverUuid.trim()).length > 0)
+  if (knownServers.filter((server) => server.uuid === req.body.serverUuid?.trim()).length > 0)
     return apiUpdateServerInList(req, res, req.body.serverUuid.trim()); // Hand it over to the update routine.
 
   // Time to wrap things up.
   var newServer = {
-    uuid: generateUuid(),
+    uuid: generateUuid(knownServers),
     ip: req.ip,
     name: req.body.serverName.trim(),
     port: parseInt(req.body.serverPort, 10),
